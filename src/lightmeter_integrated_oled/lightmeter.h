@@ -286,13 +286,12 @@ void refresh() {
   display.drawLine(124, 0, 125, 0, WHITE);
 
   if (battVolts > BATT_FULL) {
-    display.fillRect(123, 1, 4, 7, WHITE);   // full
+    display.fillRect(123, 1, 4, 7, WHITE);
   } else if (battVolts > BATT_MED) {
-    display.fillRect(123, 4, 4, 5, WHITE);   // medium
+    display.fillRect(123, 4, 4, 5, WHITE);
   } else if (battVolts > BATT_LOW) {
-    display.fillRect(123, 6, 4, 3, WHITE);   // low
+    display.fillRect(123, 6, 4, 3, WHITE);
   }
-  // else: empty – draw nothing inside the rectangle
 
   // ── Metering mode icon ──
   display.setCursor(0, 1);
@@ -447,7 +446,6 @@ void menu() {
 
   if (mainScreen && (PlusButtonState == LOW || MinusButtonState == LOW)) {
     if (modeIndex == 0) {
-      // Aperture priority
       if (PlusButtonState == LOW) {
         apertureIndex++;
         if (apertureIndex > MaxApertureIndex) apertureIndex = 0;
@@ -455,7 +453,6 @@ void menu() {
         apertureIndex = (apertureIndex > 0) ? apertureIndex - 1 : MaxApertureIndex;
       }
     } else {
-      // Shutter priority
       if (PlusButtonState == LOW) {
         T_expIndex++;
         if (T_expIndex > MaxTimeIndex) T_expIndex = 0;

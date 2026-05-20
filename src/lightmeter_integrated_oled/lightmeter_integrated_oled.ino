@@ -1,52 +1,68 @@
+// =============================================================================
+// Light Meter – ESP8266 with INTEGRATED OLED display
+//
+// Target board: ESP8266 module with built-in 128×64 SSD1306 OLED
+//               (e.g. Wemos/LOLIN ESP8266 OLED, TTGO ESP8266 OLED)
+//
+// The display is wired internally to the ESP8266 on the board.
+// Default I2C pins for most integrated boards:
+//   SDA → GPIO4  (D2)
+//   SCL → GPIO5  (D1)
+//
+// If your board uses different pins, change the Wire.begin() call in setup().
+// Common alternative: Wemos OLED Shield uses SDA=GPIO2, SCL=GPIO14 — in that
+// case replace Wire.begin() with Wire.begin(2, 14).
+// =============================================================================
+
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <BH1750.h>
 #include <EEPROM.h>
 
-// ── I2C OLED (128×64, address 0x3C) ─────────────────────────────────────────
+// ── Display ───────────────────────────────────────────────────────────────────
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT  64
-#define OLED_RESET     -1   // no reset pin; share ESP8266 reset
+#define OLED_RESET     -1       // no dedicated reset pin on integrated boards
+#define OLED_I2C_ADDR  0x3C    // most common; try 0x3D if display is blank
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 BH1750 lightMeter;
 
 // ── Calibration ──────────────────────────────────────────────────────────────
-#define DomeMultiplier          2.17    // Multiplier for white translucent dome
+#define DomeMultiplier  2.17    // multiplier for white translucent dome
 
-// ── Button pins (ESP8266 GPIO) ────────────────────────────────────────────────
-// Avoid GPIO 0, 2, 15 (boot-mode strapping pins) and GPIO 1/3 (UART TX/RX).
-#define MeteringButtonPin       14      // D5
-#define PlusButtonPin           12      // D6
-#define MinusButtonPin          13      // D7
-#define ModeButtonPin           16      // D0  (no INPUT_PULLUP on GPIO16 – uses pull-down)
-#define MenuButtonPin            5      // D1  (also I2C SCL – safe as button when not clocking)
-#define MeteringModeButtonPin    4      // D2  (also I2C SDA – same note)
-// NOTE: Wire.begin() is called before buttons are read, so D1/D2 are fine as
-// open-drain I2C lines; the pull-ups keep them HIGH when idle.
+// ── Button pins ───────────────────────────────────────────────────────────────
+// Buttons are wired between the pin and GND (active LOW, internal pull-up).
+// GPIO16 (D0) has no internal pull-up – requires external 10 kΩ to 3V3.
+#define MeteringButtonPin       14  // D5
+#define PlusButtonPin           12  // D6
+#define MinusButtonPin          13  // D7
+#define ModeButtonPin           16  // D0  ⚠ external 10 kΩ pull-up to 3V3 required
+#define MenuButtonPin            5  // D1
+#define MeteringModeButtonPin    4  // D2
 
 // ── Battery monitoring ────────────────────────────────────────────────────────
-// Connect battery (through a voltage divider if > 1 V) to the single ADC pin A0.
-// ESP8266 ADC input range: 0–1 V (NodeMCU boards have an on-board 1:3.2 divider,
-// giving a 0–3.2 V range on the A0 header pin).
-// Adjust BATT_FULL / BATT_MED / BATT_LOW to match your actual battery voltage
-// after the divider, expressed as raw ADC counts (0–1023).
-#define BATT_FULL  800   // ~3.0 V on NodeMCU divider  (≈ 2×1.5 V alkaline, fresh)
-#define BATT_MED   640   // ~2.4 V
-#define BATT_LOW   480   // ~1.8 V
+// A0 on NodeMCU-style boards accepts 0–3.2 V (on-board divider).
+// Adjust thresholds (ADC counts 0–1023) to match your battery.
+#define BATT_FULL  800  // ~2.5 V at A0
+#define BATT_MED   640  // ~2.0 V
+#define BATT_LOW   480  // ~1.5 V
 
-#define MaxISOIndex             57
-#define MaxApertureIndex        70
-#define MaxTimeIndex            80
-#define MaxNDIndex              13
-#define MaxFlashMeteringTime    5000    // ms
+// ── Constants ─────────────────────────────────────────────────────────────────
+#define MaxISOIndex           57
+#define MaxApertureIndex      70
+#define MaxTimeIndex          80
+#define MaxNDIndex            13
+#define MaxFlashMeteringTime  5000  // ms
 
+// ── State ─────────────────────────────────────────────────────────────────────
 float   lux;
-boolean Overflow = 0;
+boolean Overflow   = 0;
 float   ISOND;
-boolean ISOmode = 0;
-boolean NDmode  = 0;
+boolean ISOmode    = 0;
+boolean NDmode     = 0;
 
 boolean PlusButtonState;
 boolean MinusButtonState;
@@ -59,7 +75,7 @@ boolean ISOMenu    = false;
 boolean NDMenu     = false;
 boolean mainScreen = false;
 
-// ── EEPROM addresses ──────────────────────────────────────────────────────────
+// ── EEPROM ────────────────────────────────────────────────────────────────────
 #define EEPROM_SIZE         16
 #define ISOIndexAddr         1
 #define apertureIndexAddr    2
@@ -80,25 +96,23 @@ uint8_t modeIndex;
 uint8_t meteringMode;
 uint8_t ndIndex;
 
-int battVolts;
-#define batteryInterval 10000
+int           battVolts;
+#define       batteryInterval 10000
 unsigned long lastBatteryTime = 0;
 
 #include "lightmeter.h"
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
-  // GPIO16 (D0) has no internal pull-up; wire a 10 kΩ external pull-up to 3.3 V.
-  pinMode(PlusButtonPin,          INPUT_PULLUP);
-  pinMode(MinusButtonPin,         INPUT_PULLUP);
-  pinMode(MeteringButtonPin,      INPUT_PULLUP);
-  pinMode(ModeButtonPin,          INPUT);        // GPIO16 – external pull-up required
-  pinMode(MenuButtonPin,          INPUT_PULLUP);
-  pinMode(MeteringModeButtonPin,  INPUT_PULLUP);
+  pinMode(PlusButtonPin,         INPUT_PULLUP);
+  pinMode(MinusButtonPin,        INPUT_PULLUP);
+  pinMode(MeteringButtonPin,     INPUT_PULLUP);
+  pinMode(ModeButtonPin,         INPUT);        // GPIO16 – external pull-up required
+  pinMode(MenuButtonPin,         INPUT_PULLUP);
+  pinMode(MeteringModeButtonPin, INPUT_PULLUP);
 
-  //Serial.begin(115200);
-
-  // I2C: default SDA = GPIO4 (D2), SCL = GPIO5 (D1)
+  // Default I2C pins: SDA=GPIO4 (D2), SCL=GPIO5 (D1).
+  // Change to Wire.begin(SDA, SCL) if your board uses different pins.
   Wire.begin();
 
   EEPROM.begin(EEPROM_SIZE);
@@ -114,9 +128,8 @@ void setup() {
 
   lightMeter.begin(BH1750::ONE_TIME_HIGH_RES_MODE_2);
 
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    // If the display is not found, halt with a rapid blink on GPIO2 (built-in LED
-    // on most ESP8266 modules; active LOW).
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR)) {
+    // Display not found – blink GPIO2 LED rapidly and halt.
     pinMode(2, OUTPUT);
     while (true) {
       digitalWrite(2, LOW);  delay(100);
@@ -126,7 +139,7 @@ void setup() {
   display.setTextColor(WHITE);
   display.clearDisplay();
 
-  // Sanitise EEPROM values (first boot or corrupt data reads 0xFF = 255)
+  // Sanitise EEPROM (reads 0xFF = 255 on first boot)
   if (apertureIndex > MaxApertureIndex) apertureIndex = defaultApertureIndex;
   if (ISOIndex      > MaxISOIndex)      ISOIndex      = defaultISOIndex;
   if (T_expIndex    > MaxTimeIndex)     T_expIndex    = defaultT_expIndex;
@@ -150,40 +163,28 @@ void loop() {
 
   if (MeteringButtonState == LOW) {
     SaveSettings();
-
     lux = 0;
     refresh();
 
     if (meteringMode == 0) {
-      // Ambient light metering
       lightMeter.configure(BH1750::ONE_TIME_HIGH_RES_MODE_2);
       lux = getLux();
-
-      if (Overflow == 1) {
-        delay(10);
-        getLux();
-      }
-
+      if (Overflow == 1) { delay(10); getLux(); }
       refresh();
       delay(200);
 
     } else if (meteringMode == 1) {
-      // Flash light metering
       lightMeter.configure(BH1750::CONTINUOUS_LOW_RES_MODE);
-
       unsigned long startTime = millis();
       uint16_t currentLux = 0;
       lux = 0;
 
       while (true) {
         if (startTime + MaxFlashMeteringTime < millis()) break;
-
         currentLux = getLux();
         delay(16);
-
         if (currentLux > lux) lux = currentLux;
       }
-
       refresh();
     }
   }
