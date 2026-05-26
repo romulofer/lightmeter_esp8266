@@ -59,7 +59,7 @@ float getApertureByIndex(uint8_t indx) {
   else if (f >= 14.0f && f < 16.0f) f = 14.0f;
   else if (f >= 20.0f && f < 22.0f) f = 20.0f;
   else if (f >= 22.0f && f < 25.0f) f = 22.0f;
-  else if (f >= 24.0f && f < 28.0f) f = 25.0f;
+  else if (f >= 25.0f && f < 28.0f) f = 25.0f;
   else if (f >= 28.0f && f < 40.0f) f = 36.0f;
   else if (f >= 40.0f && f < 45.0f) f = 40.0f;
   else if (f >= 45.0f && f < 50.0f) f = 45.0f;
@@ -141,9 +141,9 @@ float getTimeByIndex(uint8_t indx) {
 
 // Convert calculated time (seconds) to photography-style shutter speed.
 double fixTime(double t) {
-  float maxTime = getTimeByIndex(MaxTimeIndex);
+  float minTime = getTimeByIndex(MaxTimeIndex);
 
-  if (t < maxTime) return maxTime;
+  if (t < minTime) return minTime;
 
   double divider = 1.0;
   t = 1.0 / t;
@@ -417,7 +417,7 @@ void menu() {
     } else if (MinusButtonState == LOW) {
       ndIndex = (ndIndex <= 0) ? MaxNDIndex : ndIndex - 1;
     }
-    if (PlusButtonState == LOW || MinusButtonState == LOW) showNDMenu();
+    if (PlusButtonState == LOW || MinusButtonState == LOW) { settingsDirty = true; showNDMenu(); }
   }
 
   if (ISOMenu) {
@@ -427,13 +427,14 @@ void menu() {
     } else if (MinusButtonState == LOW) {
       ISOIndex = (ISOIndex > 0) ? ISOIndex - 1 : MaxISOIndex;
     }
-    if (PlusButtonState == LOW || MinusButtonState == LOW) showISOMenu();
+    if (PlusButtonState == LOW || MinusButtonState == LOW) { settingsDirty = true; showISOMenu(); }
   }
 
   if (ModeButtonState == LOW) {
     if (mainScreen) {
       modeIndex++;
       if (modeIndex > 1) modeIndex = 0;
+      settingsDirty = true;
     }
     refresh();
     delay(200);
@@ -441,6 +442,7 @@ void menu() {
 
   if (mainScreen && MeteringModeButtonState == LOW) {
     meteringMode = (meteringMode == 0) ? 1 : 0;
+    settingsDirty = true;
     refresh();
     delay(200);
   }
@@ -463,6 +465,7 @@ void menu() {
         T_expIndex = (T_expIndex > 0) ? T_expIndex - 1 : MaxTimeIndex;
       }
     }
+    settingsDirty = true;
     delay(200);
     refresh();
   }

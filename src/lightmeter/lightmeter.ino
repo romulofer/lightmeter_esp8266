@@ -45,8 +45,6 @@ BH1750 lightMeter;
 float   lux;
 boolean Overflow = 0;
 float   ISOND;
-boolean ISOmode = 0;
-boolean NDmode  = 0;
 
 boolean PlusButtonState;
 boolean MinusButtonState;
@@ -58,6 +56,7 @@ boolean MeteringModeButtonState;
 boolean ISOMenu    = false;
 boolean NDMenu     = false;
 boolean mainScreen = false;
+bool    settingsDirty = false;
 
 // ── EEPROM addresses ──────────────────────────────────────────────────────────
 #define EEPROM_SIZE         16
@@ -149,7 +148,7 @@ void loop() {
   menu();
 
   if (MeteringButtonState == LOW) {
-    SaveSettings();
+    if (settingsDirty) { SaveSettings(); settingsDirty = false; }
 
     lux = 0;
     refresh();
@@ -161,7 +160,7 @@ void loop() {
 
       if (Overflow == 1) {
         delay(10);
-        getLux();
+        lux = getLux();
       }
 
       refresh();
@@ -171,8 +170,17 @@ void loop() {
       // Flash light metering
       lightMeter.configure(BH1750::CONTINUOUS_LOW_RES_MODE);
 
+      display.clearDisplay();
+      display.setTextSize(2);
+      display.setCursor(22, 20);
+      display.print(F("Waiting"));
+      display.setTextSize(1);
+      display.setCursor(28, 44);
+      display.print(F("for flash..."));
+      display.display();
+
       unsigned long startTime = millis();
-      uint16_t currentLux = 0;
+      float currentLux = 0;
       lux = 0;
 
       while (true) {
